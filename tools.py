@@ -10,14 +10,18 @@ main.py가 이 함수들을 모델에게 "메뉴판"으로 선언하고,
 설계 원칙: SELECT만, ? 바인딩만 (A안 — 모델에게 자유 SQL을 주지 않는다)
 """
 
+import json
 import os
 import sqlite3
 from pathlib import Path
 
+import numpy as np
 import requests
 from dotenv import load_dotenv
+from google import genai
 
 load_dotenv()
+client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])  # 규정검색의 질문 임베딩용
 
 NEIS_KEY = os.environ["NEIS_API_KEY"]
 SCHOOL_CODE = os.environ["SCHOOL_CODE"]      # 달성고 7240058
@@ -110,6 +114,41 @@ def 성적조회(학생이름: str) -> list[dict]:
     return [
         {"학년": 학년, "반": 반, "이름": 이름, "과목": 과목, "점수": 점수}
         for 학년, 반, 이름, 과목, 점수 in rows
+    ]
+
+
+_색인 = None  # (청크들, 벡터행렬) — 처음 검색할 때 한 번만 파일에서 로드
+
+
+def _색인로드():
+    global _색인
+    if _색인 is None:
+        base = Path(__file__).parent / "docs"
+        with open(base / "index_chunks.json", encoding="utf-8") as f:
+            청크들 = json.load(f)
+        벡터들 = np.load(base / "index_vectors.npy")
+        _색인 = (청크들, 벡터들)
+    return _색인
+
+
+def 규정검색(질문: str, 개수: int = 3) -> list[dict]:
+    """학교생활기록부 기재요령(고등학교)에서 질문과 관련된 조항을 찾아 반환한다.
+
+    RAG의 2막: 질문을 벡터로 → 저장해둔 403개 조각 벡터와 코사인 유사도 → 상위 N개.
+    반환된 조각은 모델이 '근거'로 읽고 답변을 만든다.
+    """
+    청크들, 벡터들 = _색인로드()
+
+    q = client.models.embed_content(model="gemini-embedding-001", contents=질문)
+    질문벡터 = np.array(q.embeddings[0].values, dtype=np.float32)
+
+    # 코사인 유사도를 403개 전부와 한 번에 계산 (행렬 @ 벡터)
+    유사도 = 벡터들 @ 질문벡터 / (np.linalg.norm(벡터들, axis=1) * np.linalg.norm(질문벡터))
+    상위 = np.argsort(유사도)[::-1][:개수]  # 점수 내림차순 상위 N개의 위치
+
+    return [
+        {"쪽": 청크들[i]["쪽"], "유사도": round(float(유사도[i]), 3), "내용": 청크들[i]["내용"]}
+        for i in 상위
     ]
 
 

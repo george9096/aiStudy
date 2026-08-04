@@ -2,3 +2,5 @@
 venv/
 __pycache__/
 school.db
+docs/index_chunks.json
+docs/index_vectors.npy
