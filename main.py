@@ -103,8 +103,13 @@ def 응답생성(history: list):
         for call in response.function_calls:
             print(f"  [도구 실행] {call.name} {dict(call.args)}")  # 뒷단 동작을 눈에 보이게
             함수 = TOOL_FUNCTIONS[call.name]
-            결과 = 함수(**call.args)
-            # ↑ ** = 딕셔너리를 키워드 인자로 풀기: {"날짜": "..."} → 함수(날짜="...")
+            try:
+                결과 = 함수(**call.args)
+                # ↑ ** = 딕셔너리를 키워드 인자로 풀기: {"날짜": "..."} → 함수(날짜="...")
+            except Exception as e:
+                결과 = {"오류": f"도구 실행 실패: {e}"}
+                # ↑ 도구가 죽어도(네트워크 장애 등) 프로그램은 안 죽는다.
+                #   에러를 "데이터"로 모델에게 주면 모델이 상황을 말로 설명해준다
             결과들.append(
                 types.Part.from_function_response(name=call.name, response={"결과": 결과})
             )
