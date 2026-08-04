@@ -82,6 +82,18 @@ def 출결조회(학년: int, 반: int, 최소결석수: int = 1) -> list[dict]:
     return [{"이름": 이름, "결석수": 결석수} for 이름, 결석수 in rows]
 
 
+def 학생검색(이름: str) -> list[dict]:
+    """이름으로 학생을 찾아 학년/반/번호를 반환한다. 동명이인이면 모두 반환."""
+    conn = sqlite3.connect(DB_PATH)
+    rows = conn.execute(
+        "SELECT 이름, 학년, 반, 번호 FROM 학생 WHERE 이름 = ?",
+        (이름,),
+    ).fetchall()
+    conn.close()
+    return [{"이름": 이름_, "학년": 학년, "반": 반, "번호": 번호}
+            for 이름_, 학년, 반, 번호 in rows]
+
+
 def 성적조회(학생이름: str) -> list[dict]:
     """학생 이름으로 과목별 성적을 조회한다. 동명이인이 있으면 모두 반환된다."""
     conn = sqlite3.connect(DB_PATH)

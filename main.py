@@ -65,12 +65,23 @@ SYSTEM_PROMPT = f"""너는 학교 교직원(교사·행정실)을 위한 업무 
             "required": ["학생이름"],
         },
     },
+    {
+        "name": "find_student",
+        "description": "학생 이름으로 소속(학년/반/번호)을 찾는다. "
+                       "이름만 알고 학년/반이 필요할 때 먼저 이 도구를 사용",
+        "parameters": {
+            "type": "object",
+            "properties": {"이름": {"type": "string"}},
+            "required": ["이름"],
+        },
+    },
 ])
 
 TOOL_FUNCTIONS = {  # 주문서의 이름 → 실제 실행할 함수
     "get_meal": tools.급식조회,
     "get_attendance": tools.출결조회,
     "get_grades": tools.성적조회,
+    "find_student": tools.학생검색,
 }
 
 CONFIG = types.GenerateContentConfig(
