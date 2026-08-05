@@ -14,6 +14,7 @@ from google import genai
 from google.genai import types
 
 import tools  # 우리가 만든 도구 함수들 (급식조회 / 출결조회 / 성적조회)
+import 감사  # 5-3: 도구 호출의 영구 기록 (audit.db)
 
 load_dotenv()
 client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
@@ -108,8 +109,8 @@ TOOL_FUNCTIONS = {  # 주문서의 이름 → 실제 실행할 함수
     "search_rules": tools.규정검색,
 }
 
-def 응답생성(history: list, 역할: str):
-    """도구 호출 루프 — 3단계의 심장 + 5-2 권한 검문.
+def 응답생성(history: list, 역할: str, 사용자: str = "미상"):
+    """도구 호출 루프 — 3단계의 심장 + 5-2 권한 검문 + 5-3 감사 기록.
 
     모델이 주문서를 내는 동안 [권한 검사 → 실행 → 결과 append → 재호출]을 반복하고,
     주문서 없는 응답(=최종 답변)이 나오면 반환한다. 5바퀴 소진 시 None 반환.
@@ -145,7 +146,8 @@ def 응답생성(history: list, 역할: str):
             # 2차 방어: 실행 직전 검문. 1차(메뉴판)가 뚫려도 — 프롬프트 인젝션,
             # 모델이 지어낸 도구명, 권한표 갱신 누락 — 어떤 주문이든 여기서 걸린다.
             # 덤: 지어낸 이름은 TOOL_FUNCTIONS 조회 전에 걸리므로 KeyError도 안 난다.
-            if call.name not in 역할별_허용도구.get(역할, set()):
+            허용됨 = call.name in 역할별_허용도구.get(역할, set())
+            if not 허용됨:
                 결과 = {"오류": f"권한 없음 — {역할} 역할은 {call.name} 도구를 사용할 수 없다"}
             else:
                 함수 = TOOL_FUNCTIONS[call.name]
@@ -156,6 +158,10 @@ def 응답생성(history: list, 역할: str):
                     결과 = {"오류": f"도구 실행 실패: {e}"}
                     # ↑ 도구가 죽어도(네트워크 장애 등) 프로그램은 안 죽는다.
                     #   에러를 "데이터"로 모델에게 주면 모델이 상황을 말로 설명해준다
+
+            # 5-3 감사 기록 — 허용/거부 불문, 모든 주문이 지나가는 초크 포인트.
+            # 결과는 요약()을 거쳐 원문 없이 남는다 (로그 = 제2의 유출 지점 방지)
+            감사.기록(사용자, 역할, call.name, dict(call.args), 허용됨, 감사.요약(결과))
             결과들.append(
                 types.Part.from_function_response(name=call.name, response={"결과": 결과})
             )
@@ -173,6 +179,7 @@ if __name__ == "__main__":
     역할 = ""
     while 역할 not in 역할별_허용도구:  # 화이트리스트에 있는 역할만 통과
         역할 = input(f"역할을 선택하세요 {sorted(역할별_허용도구)}: ").strip()
+    사용자 = input("이름을 입력하세요: ").strip() or "CLI사용자"
 
     history = []
     while True:
@@ -182,7 +189,7 @@ if __name__ == "__main__":
 
         # 트랜잭션 패턴: 사본에서 작업, 성공 시에만 커밋 — history엔 완결된 쌍만 남는다
         작업기록 = history + [{"role": "user", "parts": [{"text": user_input}]}]
-        response = 응답생성(작업기록, 역할)
+        response = 응답생성(작업기록, 역할, 사용자)
         if response and response.text:  # 소진(None)·빈 응답이면 커밋 금지 — 다음 턴이 400으로 죽는다
             print(f"AI: {response.text}")
             작업기록.append({"role": "model", "parts": [{"text": response.text}]})

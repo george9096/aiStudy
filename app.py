@@ -56,7 +56,9 @@ if user_input:  # LLM 호출은 반드시 이 블록 안 — 입력 없는 재�
     with st.chat_message("assistant"):
         with st.spinner("생각 중..."):  # 도구 루프가 도는 동안 스피너 (스트리밍은 추후)
             try:
-                response = main.응답생성(작업기록, st.session_state.역할)
+                response = main.응답생성(
+                    작업기록, st.session_state.역할, st.session_state.사용자명
+                )
                 답변 = response.text if response else None  # None = 5바퀴 소진(미완성)
             except Exception as e:
                 답변 = None
