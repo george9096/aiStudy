@@ -54,14 +54,19 @@ if user_input:  # LLM 호출은 반드시 이 블록 안 — 입력 없는 재�
     작업기록.append({"role": "user", "parts": [{"text": user_input}]})
 
     with st.chat_message("assistant"):
-        with st.spinner("생각 중..."):  # 도구 루프가 도는 동안 스피너 (스트리밍은 추후)
+        # st.status = 접히는 진행 상자 (5-4: 스피너 대체). main.py가 진행알림을
+        # 부를 때마다 상자 안에 한 줄씩 실시간으로 찍힌다 — 에이전트 과정의 가시화
+        with st.status("생각 중...", expanded=True) as 진행상자:
             try:
                 response = main.응답생성(
-                    작업기록, st.session_state.역할, st.session_state.사용자명
+                    작업기록, st.session_state.역할, st.session_state.사용자명,
+                    진행알림=진행상자.write,  # 함수 자체를 주입 — main.py는 Streamlit을 모른다
                 )
                 답변 = response.text if response else None  # None = 5바퀴 소진(미완성)
+                진행상자.update(label="완료", state="complete", expanded=False)
             except Exception as e:
                 답변 = None
+                진행상자.update(label="오류", state="error")
                 st.error(f"응답 생성에 실패했습니다. 잠시 후 다시 시도해주세요.\n\n상세: {e}")
         if 답변:
             st.write(답변)

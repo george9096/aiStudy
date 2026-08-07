@@ -109,13 +109,16 @@ TOOL_FUNCTIONS = {  # 주문서의 이름 → 실제 실행할 함수
     "search_rules": tools.규정검색,
 }
 
-def 응답생성(history: list, 역할: str, 사용자: str = "미상"):
+def 응답생성(history: list, 역할: str, 사용자: str = "미상", 진행알림=None):
     """도구 호출 루프 — 3단계의 심장 + 5-2 권한 검문 + 5-3 감사 기록.
 
     모델이 주문서를 내는 동안 [권한 검사 → 실행 → 결과 append → 재호출]을 반복하고,
     주문서 없는 응답(=최종 답변)이 나오면 반환한다. 5바퀴 소진 시 None 반환.
     역할은 세션(시스템)이 주입한다 — 모델·사용자 입력을 거치면 안 되는 보안 값.
+    진행알림: 도구 스텝마다 문자열 하나로 호출되는 콜백 (5-4). 이 파일은 화면을
+    모른다 — CLI는 print를, 웹은 st.status를 주입한다 (어디에 그릴지는 호출자 몫).
     """
+    알림 = 진행알림 or (lambda 메시지: None)  # 미주입이면 무음 콜백 — print를 강요하지 않는다
     config = types.GenerateContentConfig(
         # 프롬프트의 역할 표기는 UX용(거부 사유를 정중히 설명하게) — 방어가 아니다.
         # 방어는 코드가 한다: 메뉴판 필터(1차) + 실행 직전 검문(2차)
@@ -142,7 +145,7 @@ def 응답생성(history: list, 역할: str, 사용자: str = "미상"):
         # 주문서 실행 — 모델이 한 번에 여러 장 낼 수도 있다
         결과들 = []
         for call in response.function_calls:
-            print(f"  [도구 실행] ({역할}) {call.name} {dict(call.args)}")  # 뒷단 동작을 눈에 보이게
+            알림(f"🔧 {call.name} {dict(call.args)}")  # 뒷단 동작을 호출자의 화면으로
             # 2차 방어: 실행 직전 검문. 1차(메뉴판)가 뚫려도 — 프롬프트 인젝션,
             # 모델이 지어낸 도구명, 권한표 갱신 누락 — 어떤 주문이든 여기서 걸린다.
             # 덤: 지어낸 이름은 TOOL_FUNCTIONS 조회 전에 걸리므로 KeyError도 안 난다.
@@ -162,6 +165,7 @@ def 응답생성(history: list, 역할: str, 사용자: str = "미상"):
             # 5-3 감사 기록 — 허용/거부 불문, 모든 주문이 지나가는 초크 포인트.
             # 결과는 요약()을 거쳐 원문 없이 남는다 (로그 = 제2의 유출 지점 방지)
             감사.기록(사용자, 역할, call.name, dict(call.args), 허용됨, 감사.요약(결과))
+            알림(f"→ {감사.요약(결과)}")  # 화면에도 요약만 — 원문 비노출 원칙은 로그와 동일
             결과들.append(
                 types.Part.from_function_response(name=call.name, response={"결과": 결과})
             )
@@ -189,7 +193,8 @@ if __name__ == "__main__":
 
         # 트랜잭션 패턴: 사본에서 작업, 성공 시에만 커밋 — history엔 완결된 쌍만 남는다
         작업기록 = history + [{"role": "user", "parts": [{"text": user_input}]}]
-        response = 응답생성(작업기록, 역할, 사용자)
+        response = 응답생성(작업기록, 역할, 사용자,
+                        진행알림=lambda 메시지: print(f"  {메시지}"))  # CLI의 화면 = 터미널
         if response and response.text:  # 소진(None)·빈 응답이면 커밋 금지 — 다음 턴이 400으로 죽는다
             print(f"AI: {response.text}")
             작업기록.append({"role": "model", "parts": [{"text": response.text}]})
